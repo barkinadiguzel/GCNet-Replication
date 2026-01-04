@@ -7,8 +7,8 @@ from context.attention_pool import SpatialAttention
 from context.global_context import aggregate_context
 from context.transform import GCTransform
 
-class BasicBlockGC(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, use_gc=False):
+class BasicBlockGCSE(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1, use_gc=False, use_se=False, reduction=16):
         super().__init__()
         self.conv1 = Conv2dWrapper(in_channels, out_channels, 3, stride, 1)
         self.bn1 = get_batchnorm(out_channels)
@@ -28,6 +28,13 @@ class BasicBlockGC(nn.Module):
             self.attn = SpatialAttention(out_channels)
             self.gc_transform = GCTransform(out_channels)
 
+        self.use_se = use_se
+        if self.use_se:
+            self.se_reduce = nn.Conv2d(out_channels, out_channels // reduction, 1)
+            self.se_expand = nn.Conv2d(out_channels // reduction, out_channels, 1)
+            self.se_relu = nn.ReLU(inplace=True)
+            self.se_sigmoid = nn.Sigmoid()
+
     def forward(self, x):
         identity = x
         out = self.conv1(x)
@@ -41,9 +48,18 @@ class BasicBlockGC(nn.Module):
             context = aggregate_context(out, attn_map)
             out = out + self.gc_transform(context)
 
+        if self.use_se:
+            se = out.mean((2,3), keepdim=True)  # Global Avg Pool
+            se = self.se_reduce(se)
+            se = self.se_relu(se)
+            se = self.se_expand(se)
+            se = self.se_sigmoid(se)
+            out = out * se
+
         if self.downsample is not None:
             identity = self.downsample(x)
 
         out += identity
         out = self.relu(out)
         return out
+
