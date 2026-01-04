@@ -1,16 +1,17 @@
 import torch.nn as nn
-from layers.normalization import get_batchnorm
-from layers.activation import get_activation
 
 class GCTransform(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, channels, reduction=16):
         super().__init__()
-        self.conv = nn.Conv2d(channels, channels, kernel_size=1)
-        self.bn = get_batchnorm(channels)
-        self.relu = get_activation("relu")
+        hidden = max(1, channels // reduction)
+        self.conv1 = nn.Conv2d(channels, hidden, kernel_size=1, bias=True)
+        self.ln = nn.LayerNorm([hidden, 1, 1])
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(hidden, channels, kernel_size=1, bias=True)
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
+        x = self.conv1(x)      
+        x = self.ln(x)         
         x = self.relu(x)
+        x = self.conv2(x)      
         return x
